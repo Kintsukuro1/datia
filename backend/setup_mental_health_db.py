@@ -29,8 +29,18 @@ def setup_mental_health_catalog():
     print(f"Tablas encontradas en {os.path.basename(db_path)}: {tables}")
 
     for t in tables:
-        count = cursor.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-        print(f"  -> Tabla `{t}`: {count} registros")
+        t_lower = t.lower()
+        if t_lower == "answer":
+            count = cursor.execute("SELECT COUNT(*) FROM Answer").fetchone()[0]
+            print(f"  -> Tabla `{t}`: {count} registros")
+        elif t_lower == "question":
+            count = cursor.execute("SELECT COUNT(*) FROM Question").fetchone()[0]
+            print(f"  -> Tabla `{t}`: {count} registros")
+        elif t_lower == "survey":
+            count = cursor.execute("SELECT COUNT(*) FROM Survey").fetchone()[0]
+            print(f"  -> Tabla `{t}`: {count} registros")
+        else:
+            print(f"  -> Tabla `{t}` encontrada")
     conn.close()
 
     # 2. Init App Metadata Database (Roles, Users, etc.)

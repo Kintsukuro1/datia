@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Sparkles, Check, Search, Plus, Edit3, X, Save, BookOpen } from 'lucide-react';
+import React, { useReducer } from 'react';
+import { Sparkles, Check, Search, Plus, Edit3, BookOpen } from 'lucide-react';
+import { CatalogEditModal } from './CatalogEditModal';
+import { CatalogAddModal } from './CatalogAddModal';
 
 export interface CatalogItem {
   table: string;
@@ -16,94 +18,105 @@ interface AdminCatalogTabProps {
   onRunAiCatalog: () => void;
 }
 
+interface CatalogState {
+  items: CatalogItem[];
+  searchQuery: string;
+  selectedTableFilter: string;
+  editingItem: CatalogItem | null;
+  isAddModalOpen: boolean;
+}
+
+type CatalogAction =
+  | { type: 'SET_ITEMS'; items: CatalogItem[] }
+  | { type: 'SET_SEARCH'; query: string }
+  | { type: 'SET_TABLE_FILTER'; filter: string }
+  | { type: 'OPEN_EDIT'; item: CatalogItem }
+  | { type: 'CLOSE_EDIT' }
+  | { type: 'OPEN_ADD' }
+  | { type: 'CLOSE_ADD' };
+
+const STORAGE_KEY = 'datia_semantic_catalog:v1';
+const LEGACY_STORAGE_KEY = 'datia_semantic_catalog';
+
+function loadInitialCatalog(fallback: CatalogItem[]): CatalogItem[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return fallback || [];
+}
+
+function catalogReducer(state: CatalogState, action: CatalogAction): CatalogState {
+  switch (action.type) {
+    case 'SET_ITEMS':
+      return { ...state, items: action.items };
+    case 'SET_SEARCH':
+      return { ...state, searchQuery: action.query };
+    case 'SET_TABLE_FILTER':
+      return { ...state, selectedTableFilter: action.filter };
+    case 'OPEN_EDIT':
+      return { ...state, editingItem: action.item };
+    case 'CLOSE_EDIT':
+      return { ...state, editingItem: null };
+    case 'OPEN_ADD':
+      return { ...state, isAddModalOpen: true };
+    case 'CLOSE_ADD':
+      return { ...state, isAddModalOpen: false };
+    default:
+      return state;
+  }
+}
+
 export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
   catalog,
   aiEnriching,
   aiSuccess,
   onRunAiCatalog,
 }) => {
-  const [items, setItems] = useState<CatalogItem[]>(() => {
-    try {
-      const stored = localStorage.getItem('datia_semantic_catalog');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return catalog || [];
-  });
+  const [state, dispatch] = useReducer(catalogReducer, undefined, () => ({
+    items: loadInitialCatalog(catalog),
+    searchQuery: '',
+    selectedTableFilter: 'ALL',
+    editingItem: null,
+    isAddModalOpen: false,
+  }));
 
   const saveCatalogToStorage = (updatedItems: CatalogItem[]) => {
-    setItems(updatedItems);
+    dispatch({ type: 'SET_ITEMS', items: updatedItems });
     try {
-      localStorage.setItem('datia_semantic_catalog', JSON.stringify(updatedItems));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedItems));
     } catch {}
   };
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTableFilter, setSelectedTableFilter] = useState('ALL');
+  const uniqueTables = Array.from(new Set(state.items.map((i) => i.table)));
 
-
-  // Edit / Add modal state
-  const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [formTable, setFormTable] = useState('');
-  const [formColumn, setFormColumn] = useState('');
-  const [formDesc, setFormDesc] = useState('');
-  const [formFormula, setFormFormula] = useState('');
-
-  const uniqueTables = Array.from(new Set(items.map((i) => i.table)));
-
-  const filteredItems = items.filter((cat) => {
+  const filteredItems = state.items.filter((cat) => {
     const matchesSearch =
-      cat.table.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cat.column.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cat.desc.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTable = selectedTableFilter === 'ALL' || cat.table === selectedTableFilter;
+      cat.table.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
+      cat.column.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
+      cat.desc.toLowerCase().includes(state.searchQuery.toLowerCase());
+    const matchesTable = state.selectedTableFilter === 'ALL' || cat.table === state.selectedTableFilter;
     return matchesSearch && matchesTable;
   });
 
-  const handleEditClick = (cat: CatalogItem) => {
-    setEditingItem(cat);
-    setFormTable(cat.table);
-    setFormColumn(cat.column);
-    setFormDesc(cat.desc);
-    setFormFormula(cat.formula);
-  };
-
-  const handleSaveEdit = () => {
-    if (!editingItem) return;
-
-    const updated = items.map((i) =>
-      i.table === editingItem.table && i.column === editingItem.column
-        ? { ...i, desc: formDesc, formula: formFormula }
+  const handleSaveEdit = (desc: string, formula: string) => {
+    if (!state.editingItem) return;
+    const updated = state.items.map((i) =>
+      i.table === state.editingItem?.table && i.column === state.editingItem?.column
+        ? { ...i, desc, formula }
         : i
     );
     saveCatalogToStorage(updated);
-    setEditingItem(null);
+    dispatch({ type: 'CLOSE_EDIT' });
   };
 
-  const handleCreateRule = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formTable.trim() || !formColumn.trim() || !formDesc.trim()) return;
-
-    const newItem: CatalogItem = {
-      table: formTable.trim(),
-      column: formColumn.trim(),
-      desc: formDesc.trim(),
-      formula: formFormula.trim() || 'MANUAL_RULE',
-      is_ai: false,
-    };
-
-    const updated = [newItem, ...items];
+  const handleAddItem = (newItem: CatalogItem) => {
+    const updated = [newItem, ...state.items];
     saveCatalogToStorage(updated);
-    setIsAddModalOpen(false);
-    setFormTable('');
-    setFormColumn('');
-    setFormDesc('');
-    setFormFormula('');
   };
-
 
   return (
     <div className="glass-panel rounded-2xl p-6 border border-white/10 space-y-5">
@@ -120,13 +133,8 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
 
         <div className="flex items-center space-x-2">
           <button
-            onClick={() => {
-              setFormTable('');
-              setFormColumn('');
-              setFormDesc('');
-              setFormFormula('');
-              setIsAddModalOpen(true);
-            }}
+            type="button"
+            onClick={() => dispatch({ type: 'OPEN_ADD' })}
             className="flex items-center space-x-1.5 text-xs bg-dark-base hover:bg-dark-border text-gray-200 border border-dark-border px-3.5 py-2 rounded-xl transition-colors font-medium"
           >
             <Plus className="w-4 h-4" />
@@ -134,6 +142,7 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={onRunAiCatalog}
             disabled={aiEnriching}
             className="flex items-center space-x-2 text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium px-4 py-2 rounded-xl shadow-lg shadow-purple-600/30 transition-colors"
@@ -155,23 +164,32 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative w-full sm:w-72">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <label htmlFor="catalog-search" className="sr-only">
+            Buscar en catálogo
+          </label>
           <input
+            id="catalog-search"
+            aria-label="Buscar tabla, campo o descripción"
             type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={state.searchQuery}
+            onChange={(e) => dispatch({ type: 'SET_SEARCH', query: e.target.value })}
             placeholder="Buscar tabla, campo o descripción..."
             className="w-full bg-dark-base border border-dark-border rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
           />
         </div>
 
         <div className="flex items-center space-x-2 text-xs w-full sm:w-auto">
-          <span className="text-gray-400 font-medium whitespace-nowrap">Filtrar por tabla:</span>
+          <label htmlFor="catalog-table-filter" className="text-gray-400 font-medium whitespace-nowrap">
+            Filtrar por tabla:
+          </label>
           <select
-            value={selectedTableFilter}
-            onChange={(e) => setSelectedTableFilter(e.target.value)}
+            id="catalog-table-filter"
+            aria-label="Filtrar por tabla"
+            value={state.selectedTableFilter}
+            onChange={(e) => dispatch({ type: 'SET_TABLE_FILTER', filter: e.target.value })}
             className="bg-dark-base border border-dark-border rounded-xl px-3 py-1.5 text-white focus:outline-none focus:border-purple-500 text-xs"
           >
-            <option value="ALL">Todas las Tablas ({items.length})</option>
+            <option value="ALL">Todas las Tablas ({state.items.length})</option>
             {uniqueTables.map((tbl) => (
               <option key={tbl} value={tbl}>
                 {tbl}
@@ -214,7 +232,9 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
                 </td>
                 <td className="px-4 py-3 text-right">
                   <button
-                    onClick={() => handleEditClick(cat)}
+                    type="button"
+                    onClick={() => dispatch({ type: 'OPEN_EDIT', item: cat })}
+                    aria-label={`Editar regla para ${cat.table}.${cat.column}`}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors ml-auto"
                     title="Editar Regla"
                   >
@@ -228,139 +248,19 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
       </div>
 
       {/* Edit Rule Modal */}
-      {editingItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-panel w-full max-w-md rounded-2xl border border-white/10 p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-dark-border pb-3">
-              <h4 className="text-sm font-bold text-white">
-                Editar Regla Semántica: {editingItem.table}.{editingItem.column}
-              </h4>
-              <button onClick={() => setEditingItem(null)} className="text-gray-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Descripción Semántica (para LLM)</label>
-                <textarea
-                  value={formDesc}
-                  onChange={(e) => setFormDesc(e.target.value)}
-                  rows={3}
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Fórmula o Regla de Cálculo</label>
-                <input
-                  type="text"
-                  value={formFormula}
-                  onChange={(e) => setFormFormula(e.target.value)}
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500 font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="pt-3 flex justify-end space-x-2 border-t border-dark-border">
-              <button
-                onClick={() => setEditingItem(null)}
-                className="px-4 py-2 rounded-xl bg-dark-card text-gray-300 text-xs hover:bg-dark-border"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                className="flex items-center space-x-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-xl text-xs"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Guardar Cambios</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CatalogEditModal
+        isOpen={Boolean(state.editingItem)}
+        item={state.editingItem}
+        onClose={() => dispatch({ type: 'CLOSE_EDIT' })}
+        onSave={handleSaveEdit}
+      />
 
       {/* Add New Rule Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-panel w-full max-w-md rounded-2xl border border-white/10 p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-dark-border pb-3">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-purple-400" /> Nueva Regla Semántica
-              </h4>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateRule} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Nombre de Tabla</label>
-                <input
-                  type="text"
-                  value={formTable}
-                  onChange={(e) => setFormTable(e.target.value)}
-                  placeholder="ej. Answer o fact_ventas"
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500 font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Nombre de Columna / Campo</label>
-                <input
-                  type="text"
-                  value={formColumn}
-                  onChange={(e) => setFormColumn(e.target.value)}
-                  placeholder="ej. AnswerText o monto_total"
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500 font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Descripción Semántica</label>
-                <textarea
-                  value={formDesc}
-                  onChange={(e) => setFormDesc(e.target.value)}
-                  placeholder="Explicación de qué representa este campo para que la IA elija la columna correcta..."
-                  rows={3}
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Fórmula o Regla (Opcional)</label>
-                <input
-                  type="text"
-                  value={formFormula}
-                  onChange={(e) => setFormFormula(e.target.value)}
-                  placeholder="ej. SUM(monto) / MASKED / TEXT_LITERAL"
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500 font-mono"
-                />
-              </div>
-
-              <div className="pt-3 flex justify-end space-x-2 border-t border-dark-border">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-dark-card text-gray-300 text-xs hover:bg-dark-border"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-xl text-xs"
-                >
-                  Añadir al Catálogo
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <CatalogAddModal
+        isOpen={state.isAddModalOpen}
+        onClose={() => dispatch({ type: 'CLOSE_ADD' })}
+        onAdd={handleAddItem}
+      />
     </div>
   );
 };

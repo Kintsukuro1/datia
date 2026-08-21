@@ -29,14 +29,15 @@ export interface ConnectionTestResult {
   latency_ms: number;
 }
 
-const STORAGE_KEY = 'datia_corporate_connectors';
+const STORAGE_KEY = 'datia_corporate_connectors:v1';
+const LEGACY_STORAGE_KEY = 'datia_corporate_connectors';
 
 export const DEFAULT_CONNECTORS: CorporateConnection[] = [];
 
 export const connectorService = {
   getStoredConnectors(): CorporateConnection[] {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length >= 0) {

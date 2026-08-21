@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Users, UserPlus, Search, ShieldCheck, Edit3, X, Save, Check } from 'lucide-react';
-import { authService } from '../../services/auth_service';
+import React, { useReducer, useEffect } from 'react';
+import { Users, UserPlus, Search, ShieldCheck, Edit3, Check } from 'lucide-react';
+import { UserEditModal } from './UserEditModal';
+import { UserAddModal } from './UserAddModal';
 
 export interface UserItem {
   id: number;
@@ -15,130 +16,131 @@ interface AdminUsersTabProps {
   onRefreshUsers?: () => void;
 }
 
+interface UsersState {
+  userList: UserItem[];
+  searchQuery: string;
+  editingUser: UserItem | null;
+  isNewUserModalOpen: boolean;
+  isSuccessBanner: string | null;
+}
+
+type UsersAction =
+  | { type: 'SET_USER_LIST'; users: UserItem[] }
+  | { type: 'SET_SEARCH'; query: string }
+  | { type: 'OPEN_EDIT'; user: UserItem }
+  | { type: 'CLOSE_EDIT' }
+  | { type: 'OPEN_NEW_USER' }
+  | { type: 'CLOSE_NEW_USER' }
+  | { type: 'SET_SUCCESS_BANNER'; message: string | null };
+
+const STORAGE_KEY = 'datia_governance_users:v1';
+const LEGACY_STORAGE_KEY = 'datia_governance_users';
+
+const getRoleBadgeStyle = (role: string, isAdmin: boolean): string => {
+  if (isAdmin || role === 'Administrador') {
+    return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+  }
+  if (role === 'Economista') {
+    return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+  }
+  if (role === 'TI') {
+    return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+  }
+  return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+};
+
+function usersReducer(state: UsersState, action: UsersAction): UsersState {
+  switch (action.type) {
+    case 'SET_USER_LIST':
+      return { ...state, userList: action.users };
+    case 'SET_SEARCH':
+      return { ...state, searchQuery: action.query };
+    case 'OPEN_EDIT':
+      return { ...state, editingUser: action.user };
+    case 'CLOSE_EDIT':
+      return { ...state, editingUser: null };
+    case 'OPEN_NEW_USER':
+      return { ...state, isNewUserModalOpen: true };
+    case 'CLOSE_NEW_USER':
+      return { ...state, isNewUserModalOpen: false };
+    case 'SET_SUCCESS_BANNER':
+      return { ...state, isSuccessBanner: action.message };
+    default:
+      return state;
+  }
+}
+
 export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ users, onRefreshUsers }) => {
-  const [userList, setUserList] = useState<UserItem[]>(users);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [editingUser, setEditingUser] = useState<UserItem | null>(null);
-  const [selectedRole, setSelectedRole] = useState<string>('');
-  const [isAdminCheck, setIsAdminCheck] = useState<boolean>(false);
-  const [isSuccessBanner, setIsSuccessBanner] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(usersReducer, {
+    userList: users,
+    searchQuery: '',
+    editingUser: null,
+    isNewUserModalOpen: false,
+    isSuccessBanner: null,
+  });
 
-  // New user modal state
-  const [isNewUserModalOpen, setIsNewUserModalOpen] = useState(false);
-  const [newUsername, setNewUsername] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState('Economista');
-  const [newIsAdmin, setNewIsAdmin] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
-  React.useEffect(() => {
+  useEffect(() => {
     try {
-      const stored = localStorage.getItem('datia_governance_users');
+      const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
       if (stored) {
-        setUserList(JSON.parse(stored));
+        dispatch({ type: 'SET_USER_LIST', users: JSON.parse(stored) });
       } else {
-        setUserList(users);
+        dispatch({ type: 'SET_USER_LIST', users });
       }
     } catch {
-      setUserList(users);
+      dispatch({ type: 'SET_USER_LIST', users });
     }
   }, [users]);
 
   const saveUsersToStorage = (updated: UserItem[]) => {
-    setUserList(updated);
+    dispatch({ type: 'SET_USER_LIST', users: updated });
     try {
-      localStorage.setItem('datia_governance_users', JSON.stringify(updated));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch {
       // Ignore quota error
     }
   };
 
-  const filteredUsers = userList.filter(
+  const filteredUsers = state.userList.filter(
     (u) =>
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.role.toLowerCase().includes(searchQuery.toLowerCase())
+      u.name.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
+      u.email.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
+      u.role.toLowerCase().includes(state.searchQuery.toLowerCase())
   );
 
-  const handleEditRole = (user: UserItem) => {
-    setEditingUser(user);
-    setSelectedRole(user.role);
-    setIsAdminCheck(user.is_admin);
-  };
+  const handleSaveRole = (role: string, isAdmin: boolean) => {
+    if (!state.editingUser) return;
+    const editingUser = state.editingUser;
 
-  const handleSaveRoleChange = () => {
-    if (!editingUser) return;
-
-    const updated = userList.map((u) => {
+    const updated = state.userList.map((u) => {
       if (u.id === editingUser.id) {
         return {
           ...u,
-          role: selectedRole,
-          is_admin: isAdminCheck,
+          role,
+          is_admin: isAdmin,
         };
       }
       return u;
     });
 
     saveUsersToStorage(updated);
-    setIsSuccessBanner(`Rol actualizado exitosamente para ${editingUser.name} -> ${selectedRole}`);
-    setEditingUser(null);
-    setTimeout(() => setIsSuccessBanner(null), 3500);
+    dispatch({
+      type: 'SET_SUCCESS_BANNER',
+      message: `Rol actualizado exitosamente para ${editingUser.name} -> ${role}`,
+    });
+    dispatch({ type: 'CLOSE_EDIT' });
+    setTimeout(() => dispatch({ type: 'SET_SUCCESS_BANNER', message: null }), 3500);
   };
 
-
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUsername.trim() || !newPassword.trim()) {
-      setCreateError('Por favor completa el nombre de usuario y contraseña.');
-      return;
-    }
-
-    try {
-      await authService.register({
-        username: newUsername,
-        email: newEmail || undefined,
-        password: newPassword,
-        is_admin: newIsAdmin,
-      });
-
-      const createdItem: UserItem = {
-        id: Date.now(),
-        name: newUsername,
-        email: newEmail || `${newUsername}@empresa.com`,
-        role: newRole,
-        is_admin: newIsAdmin,
-      };
-
-      const updatedUsers = [...userList, createdItem];
-      saveUsersToStorage(updatedUsers);
-      setIsSuccessBanner(`Usuario '${newUsername}' registrado correctamente.`);
-
-      setIsNewUserModalOpen(false);
-      setNewUsername('');
-      setNewEmail('');
-      setNewPassword('');
-      setCreateError(null);
-
-      if (onRefreshUsers) onRefreshUsers();
-      setTimeout(() => setIsSuccessBanner(null), 3500);
-    } catch (err: any) {
-      setCreateError(err.response?.data?.detail || 'Error al registrar el nuevo usuario.');
-    }
-  };
-
-  const getRoleBadgeStyle = (role: string, isAdmin: boolean) => {
-    if (isAdmin || role === 'Administrador') {
-      return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
-    }
-    if (role === 'Economista') {
-      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    }
-    if (role === 'TI') {
-      return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
-    }
-    return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+  const handleUserCreated = (createdItem: UserItem) => {
+    const updatedUsers = [...state.userList, createdItem];
+    saveUsersToStorage(updatedUsers);
+    dispatch({
+      type: 'SET_SUCCESS_BANNER',
+      message: `Usuario '${createdItem.name}' registrado correctamente.`,
+    });
+    if (onRefreshUsers) onRefreshUsers();
+    setTimeout(() => dispatch({ type: 'SET_SUCCESS_BANNER', message: null }), 3500);
   };
 
   return (
@@ -149,23 +151,31 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ users, onRefreshUs
           <h3 className="text-sm font-semibold text-white flex items-center gap-2">
             <Users className="w-4 h-4 text-purple-400" /> Matriz de Usuarios y Gobernanza RBAC
           </h3>
-          <p className="text-xs text-gray-400">Asignación de perfiles (Administrador, Economista, TI, Usuario) y Column-Level Security</p>
+          <p className="text-xs text-gray-400">
+            Asignación de perfiles (Administrador, Economista, TI, Usuario) y Column-Level Security
+          </p>
         </div>
 
         <div className="flex items-center space-x-3">
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <label htmlFor="admin-users-search" className="sr-only">
+              Buscar usuario o rol
+            </label>
             <input
+              id="admin-users-search"
+              aria-label="Buscar usuario o rol"
               type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={state.searchQuery}
+              onChange={(e) => dispatch({ type: 'SET_SEARCH', query: e.target.value })}
               placeholder="Buscar usuario o rol..."
               className="bg-dark-base border border-dark-border rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
             />
           </div>
 
           <button
-            onClick={() => setIsNewUserModalOpen(true)}
+            type="button"
+            onClick={() => dispatch({ type: 'OPEN_NEW_USER' })}
             className="flex items-center space-x-1.5 text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium px-4 py-2 rounded-xl shadow-lg shadow-purple-600/30 transition-colors"
           >
             <UserPlus className="w-4 h-4" />
@@ -174,10 +184,10 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ users, onRefreshUs
         </div>
       </div>
 
-      {isSuccessBanner && (
+      {state.isSuccessBanner && (
         <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center space-x-2 animate-fadeIn">
           <Check className="w-4 h-4 shrink-0" />
-          <span>{isSuccessBanner}</span>
+          <span>{state.isSuccessBanner}</span>
         </div>
       )}
 
@@ -220,7 +230,9 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ users, onRefreshUs
                 </td>
                 <td className="px-4 py-3 text-right">
                   <button
-                    onClick={() => handleEditRole(u)}
+                    type="button"
+                    onClick={() => dispatch({ type: 'OPEN_EDIT', user: u })}
+                    aria-label={`Editar rol para ${u.name}`}
                     className="flex items-center space-x-1 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 px-3 py-1 rounded-lg transition-colors ml-auto"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
@@ -234,165 +246,19 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({ users, onRefreshUs
       </div>
 
       {/* Edit Role Modal */}
-      {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-panel w-full max-w-md rounded-2xl border border-white/10 p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-dark-border pb-3">
-              <h4 className="text-sm font-bold text-white">Editar Perfil & Gobernanza - {editingUser.name}</h4>
-              <button onClick={() => setEditingUser(null)} className="text-gray-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-medium text-gray-300 mb-1">Seleccionar Perfil RBAC</label>
-                <select
-                  value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value)}
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
-                >
-                  <option value="Economista">Economista (Finanzas, Ventas, Costos, Márgenes)</option>
-                  <option value="TI">TI (Servidores, Incidentes, Telemetría CPU/RAM)</option>
-                  <option value="Administrador">Administrador (Acceso Total + Auditoría)</option>
-                  <option value="Usuario">Usuario (Sin asignación - Bloqueado)</option>
-                </select>
-              </div>
-
-              <div className="flex items-center space-x-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="isAdminCheckModal"
-                  checked={isAdminCheck}
-                  onChange={(e) => setIsAdminCheck(e.target.checked)}
-                  className="w-4 h-4 text-purple-600 rounded bg-dark-base border-dark-border focus:ring-purple-500"
-                />
-                <label htmlFor="isAdminCheckModal" className="text-gray-300 font-medium cursor-pointer">
-                  Otorgar Privilegios de Super Administrador
-                </label>
-              </div>
-            </div>
-
-            <div className="pt-3 flex justify-end space-x-2 border-t border-dark-border">
-              <button
-                onClick={() => setEditingUser(null)}
-                className="px-4 py-2 rounded-xl bg-dark-card text-gray-300 text-xs font-medium hover:bg-dark-border"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveRoleChange}
-                className="flex items-center space-x-1 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold px-4 py-2 rounded-xl"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Guardar Rol</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UserEditModal
+        isOpen={Boolean(state.editingUser)}
+        user={state.editingUser}
+        onClose={() => dispatch({ type: 'CLOSE_EDIT' })}
+        onSave={handleSaveRole}
+      />
 
       {/* New User Modal */}
-      {isNewUserModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-panel w-full max-w-md rounded-2xl border border-white/10 p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-dark-border pb-3">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <UserPlus className="w-4 h-4 text-purple-400" /> Registrar Nuevo Usuario
-              </h4>
-              <button onClick={() => setIsNewUserModalOpen(false)} className="text-gray-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
-              {createError && (
-                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
-                  {createError}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Nombre de Usuario</label>
-                <input
-                  type="text"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="ej. felipe_analista"
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Correo Electrónico</label>
-                <input
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="usuario@empresa.com"
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Contraseña Inicial</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 font-medium mb-1">Perfil Rol RBAC</label>
-                <select
-                  value={newRole}
-                  onChange={(e) => setNewRole(e.target.value)}
-                  className="w-full bg-dark-base border border-dark-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
-                >
-                  <option value="Economista">Economista</option>
-                  <option value="TI">TI</option>
-                  <option value="Administrador">Administrador</option>
-                  <option value="Usuario">Usuario (Pendiente asignación)</option>
-                </select>
-              </div>
-
-              <div className="flex items-center space-x-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="newIsAdminCheck"
-                  checked={newIsAdmin}
-                  onChange={(e) => setNewIsAdmin(e.target.checked)}
-                  className="w-4 h-4 text-purple-600 rounded bg-dark-base border-dark-border focus:ring-purple-500"
-                />
-                <label htmlFor="newIsAdminCheck" className="text-gray-300 cursor-pointer">
-                  Otorgar Privilegios de Administrador
-                </label>
-              </div>
-
-              <div className="pt-3 flex justify-end space-x-2 border-t border-dark-border">
-                <button
-                  type="button"
-                  onClick={() => setIsNewUserModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-dark-card text-gray-300 text-xs hover:bg-dark-border"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-xl text-xs"
-                >
-                  Registrar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <UserAddModal
+        isOpen={state.isNewUserModalOpen}
+        onClose={() => dispatch({ type: 'CLOSE_NEW_USER' })}
+        onSuccess={handleUserCreated}
+      />
     </div>
   );
 };

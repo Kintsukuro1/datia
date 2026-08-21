@@ -44,7 +44,13 @@ class DynamicSchemaPruningService:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             # PRAGMA table_info returns: (cid, name, type, notnull, dflt_value, pk)
-            rows = cursor.execute(f"PRAGMA table_info('{table_name}');").fetchall()
+            clean_table = "".join(c for c in table_name if c.isalnum() or c == "_")
+            if not clean_table:
+                return []
+            rows = cursor.execute(
+                "SELECT cid, name, type, notnull, dflt_value, pk FROM pragma_table_info(?)",
+                (clean_table,)
+            ).fetchall()
             conn.close()
             return [
                 {
