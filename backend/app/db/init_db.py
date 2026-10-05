@@ -298,10 +298,47 @@ def init_db(db: Session):
                     permission_type=ColumnPermissionType.BLOCKED
                 ))
 
-            # 3. Block salary and compensation for non-HR roles
+            # 3. Block the service API key
+            #
+            # Va aqui, junto al token de tarjeta, y NO con los sueldos: ese bloque
+            # esta dentro de `if not is_hr_role` porque un sueldo es un dato que
+            # RRHH legitimamente necesita ver. Una API key no esta en ese caso: es
+            # una credencial que se autentica contra los propios servidores, o sea
+            # un secreto para todo rol no-admin, RRHH incluido -- que alguien sea de
+            # RRHH no lo hace menos tecnico.
+            #
+            # Sin esta fila la columna quedaba sin clasificar en la matriz y
+            # `GET /catalog/data-dictionary` le devolvia `SECRET-KEY-PROD-DB01` en
+            # claro a `economista`: la misma fuga que el IBAN o el sueldo, un nivel
+            # mas arriba porque la credencial abre la infraestructura.
+            existing_api_key = db.query(RoleColumnPermission).filter(
+                RoleColumnPermission.role_id == r_obj.id,
+                RoleColumnPermission.connection_id == s_conn.id,
+                RoleColumnPermission.table_name == "dim_servidores",
+                RoleColumnPermission.column_name == "api_key_servicio"
+            ).first()
+            if not existing_api_key:
+                db.add(RoleColumnPermission(
+                    role_id=r_obj.id,
+                    connection_id=s_conn.id,
+                    schema_name=s_schema,
+                    table_name="dim_servidores",
+                    column_name="api_key_servicio",
+                    permission_type=ColumnPermissionType.BLOCKED
+                ))
+
+            # 4. Block salary and compensation for non-HR roles
+            #
+            # Los nombres de las dos demos no coinciden: la de PostgreSQL tiene
+            # `sueldo_mensual` y la demo SQLite `salario_bruto`. Con una lista por
+            # motor, la demo sin PostgreSQL (el arranque de serie cuando no hay servidor)
+            # se quedaba con el sueldo y el IBAN sin clasificar: el diccionario y
+            # el chat los servian en claro a cualquier rol. Se siembran TODOS los
+            # nombres; los que la conexion no tiene no son mas que una fila muerta.
             is_hr_role = "talento" in r_obj.name.lower() or "rrhh" in r_obj.name.lower()
             if not is_hr_role:
-                for col in ["sueldo_mensual", "salario"]:
+                for col in ["sueldo_mensual", "salario", "salario_bruto", "bono_anual",
+                            "cuenta_bancaria_iban"]:
                     existing_sal = db.query(RoleColumnPermission).filter(
                         RoleColumnPermission.role_id == r_obj.id,
                         RoleColumnPermission.connection_id == s_conn.id,
@@ -317,6 +354,25 @@ def init_db(db: Session):
                             column_name=col,
                             permission_type=ColumnPermissionType.BLOCKED
                         ))
+
+            # 5. El RUT/DNI del empleado es la misma clase de dato que el del
+            # cliente: se consulta pero se enmascara. Sin esta fila, la demo SQLite
+            # lo expone en claro (la de PostgreSQL no tiene la columna).
+            existing_emp_rut = db.query(RoleColumnPermission).filter(
+                RoleColumnPermission.role_id == r_obj.id,
+                RoleColumnPermission.connection_id == s_conn.id,
+                RoleColumnPermission.table_name == "dim_empleados",
+                RoleColumnPermission.column_name == "rut_dni"
+            ).first()
+            if not existing_emp_rut:
+                db.add(RoleColumnPermission(
+                    role_id=r_obj.id,
+                    connection_id=s_conn.id,
+                    schema_name=s_schema,
+                    table_name="dim_empleados",
+                    column_name="rut_dni",
+                    permission_type=ColumnPermissionType.MASKED
+                ))
 
     # MIGRACION default-deny: los datasets ya cargados.
     #
