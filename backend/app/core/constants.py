@@ -13,16 +13,8 @@ ROLE_INGENIERO_TI = "Ingeniero de Infraestructura & TI"
 ROLE_OFICIAL_SEGURIDAD = "Oficial de Cumplimiento & Seguridad"
 ROLE_USUARIO = "Usuario Consultor"
 
-# Backward compatibility aliases
-ROLE_ECONOMISTA = "Economista"
-ROLE_TI = "TI"
-
 ADMIN_ROLES = {
     ROLE_ADMINISTRADOR,
-    "Administrador",
-    "Super Administrador",
-    "Admin",
-    "Data Platform Admin"
 }
 
 DEFAULT_USER_ROLE = ROLE_USUARIO

@@ -8,7 +8,7 @@ Respuestas Fluidas, Conversacionales y Dinámicas (Estilo ChatGPT / Claude / Gro
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Set
-from app.core.constants import ADMIN_ROLES, ROLE_ADMINISTRADOR
+from app.core.constants import ADMIN_ROLES
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ class PromptManager:
     @staticmethod
     def get_text_to_sql_system_prompt(user_role: str, allowed_tables: Set[str], dialect: str = "sqlite") -> str:
         tables_str = ", ".join(sorted(allowed_tables)) if allowed_tables else "Ninguna"
-        is_admin_user = user_role in ADMIN_ROLES or user_role in ("Administrador", ROLE_ADMINISTRADOR)
+        is_admin_user = user_role in ADMIN_ROLES
         if is_admin_user:
             rbac_instruction = (
                 "9. PERFIL ADMINISTRADOR: El usuario posee privilegios totales de administración. "

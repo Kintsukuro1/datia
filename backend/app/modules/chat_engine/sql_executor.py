@@ -319,7 +319,7 @@ Genera la consulta SQL corregida y funcional para {engine_label}:"""
             if user_role:
                 # Un admin ve todas (incluidas las sin rol); para el resto solo las
                 # de su propio rol.
-                if str(user_role).lower() in ADMIN_ROLES:
+                if user_role in ADMIN_ROLES:
                     pass
                 else:
                     query = query.filter(

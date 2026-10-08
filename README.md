@@ -92,11 +92,29 @@ backend en `http://backend:8000`.
 
 ## 🔑 Credenciales de Acceso Demo
 
-| Rol | Usuario | Contraseña | Acceso de Datos |
+Los permisos se otorgan por **responsabilidad funcional**, no por título personal.
+Cada perfil ve las tablas de su área y el resto le responde con un denegado de
+gobernanza que nombra el motivo.
+
+| Rol corporativo | Usuario | Contraseña | Acceso de Datos |
 | :--- | :--- | :--- | :--- |
-| **Administrador** | `admin` | `admin123` | Control total RBAC, conexiones y auditoría |
-| **Economista** | `economista` | `economista123` | Finanzas, ventas, clientes, facturación y encuestas |
-| **TI** | `ti` | `ti123` | Infraestructura, servidores, incidentes y encuestas |
+| **Administrador de Plataforma** | `admin` | `admin123` | Control total RBAC, conexiones y auditoría |
+| **Director Ejecutivo (C-Level)** | `director` | `director123` | Rentabilidad consolidada y catálogo. Sin el detalle transaccional |
+| **Analista Financiero & Comercial** | `economista` | `economista123` | Finanzas, ventas, clientes, facturación y encuestas |
+| **Gerente de Talento & Operaciones** | `talento` | `talento123` | Plantilla (incluye sueldos) y encuestas. Sin ventas |
+| **Analista de Datos & BI** | `bi` | `bi123` | Infraestructura y catálogo. Sin datos financieros |
+| **Ingeniero de Infraestructura & TI** | `ti` | `ti123` | Infraestructura, servidores, incidentes y encuestas |
+| **Oficial de Cumplimiento & Seguridad** | `seguridad` | `seguridad123` | Trazabilidad técnica y catálogo. Sin márgenes de venta |
+| **Usuario Consultor** | `consultor` | `consultor123` | Solo lectura del catálogo de productos y encuestas |
+
+Ningún rol ve el detalle transaccional (`fact_ventas`) salvo el Administrador y el
+Analista Financiero: el resto recibe un denegado con el motivo.
+
+Dos cuentas adicionales existen para pruebas automatizadas y no aparecen en el
+login: `felipe_economista` y `juan_ti`.
+
+El login incluye un desplegable con estos ocho perfiles: al elegir uno se rellenan
+las credenciales y el acceso ocurre al pulsar **Acceder al Sistema**.
 
 ---
 
@@ -106,6 +124,17 @@ El sistema incluye separación estricta de dominios:
 * **Economía & Finanzas:** Acceso a `dim_categorias`, `dim_productos`, `dim_clientes`, `fact_ventas`, `fact_ingresos_costos`, `dim_empleados`.
 * **Tecnología & TI:** Acceso a `dim_servidores`, `fact_incidentes_ti`, `fact_consumo_recursos`.
 * **Column-Level Security:** `tarjeta_credito_token` y `api_key_servicio` restringidos exclusivamente a superadministradores.
+
+La gobernanza aplica en tres capas, y cada una frena por su cuenta:
+
+1. **Matriz de permisos** (`role_table_permissions`): define qué tablas ve cada rol.
+   Es la capa que hace el aislamiento.
+2. **Guard de dominio** (`governance_guard`): además de la tabla, frena el
+   *tema* de la pregunta. El C-Level tiene bypass de dominio por diseño, así que
+   en su caso solo lo frena la capa 1.
+3. **Validador AST** (`sqlglot`): si el LLM genera SQL contra una tabla fuera de
+   la matriz, la consulta se rechaza antes de llegar a la base, aunque la pregunta
+   haya pasado el filtro de palabras clave.
 
 ---
 

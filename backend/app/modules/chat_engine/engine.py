@@ -213,11 +213,19 @@ class QueryEngine:
 
         effective_question = original_question or question
 
-        # 2. RBAC check for unassigned "Usuario" role
-        if not is_admin and (user_role == ROLE_USUARIO or not user_role):
+        # 2. RBAC check: la cuenta NO tiene ningun rol asignado.
+        #
+        # El corte es `not user_role`, no `user_role == ROLE_USUARIO`: el
+        # Usuario Consultor es un rol valido del catalogo con lectura minima
+        # declarada, y bloquearlo por nombre lo dejaba como un perfil que no
+        # puede hacer nada. Lo que se corta es la cuenta a la que nunca se le
+        # asigno un rol, que es indistinguible de la que se registro antes de que
+        # existiera el catalogo.
+        if not is_admin and not user_role:
             return ResponseBuilder.build_rbac_denied_response(
                 effective_question,
-                "Tu cuenta se encuentra registrada con el perfil inicial 'Usuario'. Un Administrador debe asignarte un rol (Economista o TI) para acceder a los datos corporativos."
+                "Tu cuenta todavía no tiene un rol asignado. Un Administrador debe "
+                "asignarte un perfil corporativo para acceder a los datos."
             )
 
         allowed_tables = cls.get_allowed_tables_for_role(user_role, is_admin, db=db, role_id=role_id, connection_id=connection_id)
